@@ -1,13 +1,20 @@
-# 상세페이지 제작 에이전트 v2.2
+# 이커머스 이미지 제작 에이전트 v2.3
 
-> 이커머스 농수산물 상세페이지를 자동 설계하고 Gemini AI로 이미지까지 제작하는 에이전트
+> 이커머스 농수산물 상세페이지 & 썸네일을 자동 설계하고 Gemini AI로 이미지까지 제작하는 에이전트
 
 ---
 
 ## 에이전트 개요
 
-이 에이전트는 **3가지 모드**를 제공합니다.
+이 에이전트는 **2가지 제작 유형**을 제공합니다.
 
+```
+[제작 유형]
+A) 상세페이지 제작 — 상품 상세페이지 이미지 (3가지 모드)
+B) 썸네일 제작    — 상품 대표 이미지 / 마케팅 썸네일
+```
+
+### 상세페이지 모드
 ```
 ① 빠른 제작 (경량) — 블록 5개, 분석 스킵, 토큰 절약 ⭐ 기본
 ② 표준 제작 (중간) — 블록 7개, 간단 분석 + 카피, 균형
@@ -45,7 +52,22 @@ API 키를 입력해주세요:
    python3 -c "import google.genai" 2>/dev/null || pip3 install -r requirements.txt
    ```
 
-### 제작 모드 선택
+### 제작 유형 선택
+
+```
+[AskUserQuestion]
+무엇을 만들까요?
+
+① 상세페이지 — 상품 상세페이지 이미지
+② 썸네일 — 상품 대표 이미지 (검색 결과/목록용)
+```
+
+`task_type` 변수로 저장 (detail / thumbnail).
+
+- **① 상세페이지** → 아래 "제작 모드 선택"으로 이동
+- **② 썸네일** → 맨 하단 "🖼️ 썸네일 제작 모드"로 이동
+
+### 제작 모드 선택 (상세페이지일 때만)
 
 ```
 [AskUserQuestion]
@@ -559,7 +581,184 @@ HTML 선택 시:
 
 ---
 
-*버전: 2.1*
-*생성일: 2026-03-28*
-*변경: 빠른 제작(경량) 모드 추가 — 블록 5개, 분석 스킵, 토큰 절약*
+## 🖼️ 썸네일 제작 모드 — task_type == "thumbnail"
+
+> Phase 0에서 "② 썸네일"을 선택한 경우 이 섹션으로 이동합니다.
+
+### Thumbnail Phase 0: 설정
+
+상품명은 이미 Phase 0에서 입력받음.
+플랫폼도 이미 선택됨.
+
+추가 질문:
+
+```
+[AskUserQuestion]
+썸네일 타입을 선택해주세요:
+
+① 클린 상품컷 — 흰 배경 + 상품만 (플랫폼 기본 요건)
+② 마케팅 썸네일 — 상품 + 카피 텍스트 + 뱃지 (클릭률 UP)
+```
+
+`thumb_type` 변수로 저장 (clean_product / marketing).
+
+플랫폼별 썸네일 규격:
+
+| 플랫폼 | 권장 크기 | 비율 | 포맷 |
+|--------|----------|------|------|
+| 쿠팡 | 500x500px 이상 | 1:1 정사각 | JPG/PNG |
+| 스마트스토어 | 1000x1000px | 1:1 정사각 | JPG/PNG |
+| 올웨이즈 | 800x800px | 1:1 정사각 | JPG/PNG |
+| 토스 | 800x800px | 1:1 정사각 | JPG/PNG |
+| 공통 | 1000x1000px | 1:1 정사각 | JPG |
+
+### Thumbnail Phase 1: 정보 수집 (간단)
+
+WebSearch 1회로 상품 특징 파악:
+
+```
+검색 쿼리: "{product_name} 쿠팡"
+```
+
+정리할 내용:
+- 상품 핵심 특징 1줄
+- 주요 뱃지 후보 (무농약/GAP/산지직송/무료배송 등)
+- 가격 (include_price == true인 경우만)
+
+### Thumbnail Phase 2: 썸네일 생성
+
+#### ① 클린 상품컷 (thumb_type == "clean_product")
+
+Gemini로 정사각 상품 이미지 생성:
+
+```bash
+python3 scripts/gemini-image.py \
+  --product "{product_name}" \
+  --block "썸네일" \
+  --block-num 1 \
+  --style "{style}" \
+  --copy "{product_name}" \
+  --output "output/{product_name}/thumbnails/" \
+  --platform {platform}
+```
+
+**프롬프트 가이드 (클린 상품컷):**
+```
+Product photography of {product_name}.
+Square format (1:1 ratio), {size}x{size}px.
+Pure white background (#FFFFFF).
+Product centered, occupying 70-80% of frame.
+Professional studio lighting, soft shadows.
+High resolution, clean and minimal.
+NO text, NO labels, NO watermarks, NO decorations.
+Korean food product style — appetizing, fresh appearance.
+```
+
+한 번에 **3장 변형**을 생성 (Agent 3개 병렬):
+- 변형 A: 정면 앵글
+- 변형 B: 약간 위에서 (45도)
+- 변형 C: 클로즈업 (질감 강조)
+
+#### ② 마케팅 썸네일 (thumb_type == "marketing")
+
+카피 요소 먼저 결정:
+
+```
+[AskUserQuestion]
+썸네일에 들어갈 텍스트를 확인해주세요:
+
+메인 카피: "{자동 생성 — 예: 해남 황토 꿀고구마}"
+서브 카피: "{자동 생성 — 예: GAP 인증 산지직송}"
+뱃지: "{자동 생성 — 예: 무료배송 | 무농약}"
+
+수정할 부분이 있으면 말씀해주세요.
+```
+
+include_price == true인 경우에만 가격 뱃지 추가.
+
+Gemini로 마케팅 썸네일 생성:
+
+**프롬프트 가이드 (마케팅 썸네일):**
+```
+E-commerce product thumbnail for {product_name}.
+Square format (1:1 ratio), {size}x{size}px.
+{style_description} background.
+Product image prominently displayed.
+Korean text overlay:
+- Main: "{main_copy}" (large, bold)
+- Sub: "{sub_copy}" (smaller)
+- Badge: "{badges}" (corner badge style)
+Professional Korean e-commerce thumbnail style.
+Clean layout, high contrast text for readability.
+```
+
+한 번에 **3장 변형** 생성 (Agent 3개 병렬):
+- 변형 A: 텍스트 좌측 + 상품 우측
+- 변형 B: 텍스트 상단 + 상품 중앙
+- 변형 C: 텍스트 하단 + 상품 배경
+
+### Thumbnail Phase 3: 확인 + 저장
+
+3장 변형을 Read로 사용자에게 표시:
+
+```
+[이미지 3장 모두 표시]
+
+🖼️ 썸네일 3가지 변형입니다:
+
+A. 정면 앵글 / 텍스트 좌측
+B. 45도 앵글 / 텍스트 상단
+C. 클로즈업 / 텍스트 하단
+
+어떤 것을 사용하시겠어요?
+- 번호로 선택 (예: A)
+- 수정 요청 (예: "A 배경 더 밝게")
+- 전부 재생성
+```
+
+선택 완료 시:
+
+```
+✅ 썸네일 제작 완료!
+
+📁 저장 위치: output/{product_name}/thumbnails/
+🖼️ 파일: thumbnail_A.jpg, thumbnail_B.jpg, thumbnail_C.jpg
+
+[업로드 방법]
+마음에 드는 이미지를 플랫폼 대표 이미지에 등록하세요.
+- 쿠팡: Wing → 상품 등록 → 대표이미지
+- 스마트스토어: 상품 등록 → 대표이미지
+```
+
+---
+
+## 에러 처리
+
+### Gemini API 에러
+
+```
+- API 키 없음 → Phase 0 API 키 설정으로 이동
+- Rate limit → 30초 대기 후 재시도 (최대 3회)
+- 이미지 생성 실패 → 해당 블록만 재시도, 3회 실패 시 스킵
+```
+
+### 파일 시스템 에러
+
+```
+- output 폴더 없음 → 자동 생성 (mkdir -p)
+- 동일 상품명 폴더 존재 → "{product_name}_v2" 등 버전 추가
+```
+
+### 웹 크롤링 에러
+
+```
+- URL 접근 불가 → WebSearch 모드로 전환
+- 정보 부족 → 인터뷰 모드로 보충 질문
+```
+
+---
+
+*버전: 2.3*
+*생성일: 2026-03-30*
+*변경: 썸네일 제작 모드 추가 (클린 상품컷 / 마케팅 썸네일, 3장 변형 병렬 생성)*
 *의존성: scripts/gemini-image.py, prompts/style-*.txt, prompts/block-prompts.txt, templates/detail-base.html*
