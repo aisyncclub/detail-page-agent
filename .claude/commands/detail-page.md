@@ -585,32 +585,85 @@ HTML 선택 시:
 
 > Phase 0에서 "② 썸네일"을 선택한 경우 이 섹션으로 이동합니다.
 
-### Thumbnail Phase 0: 설정
+### Thumbnail Phase 0: 옵션 설정
 
-상품명은 이미 Phase 0에서 입력받음.
-플랫폼도 이미 선택됨.
+상품명, 플랫폼, 가격 표시 여부는 이미 Phase 0에서 입력받음.
+아래 질문을 **AskUserQuestion 1회**로 한번에 묻습니다:
 
-추가 질문:
+```
+[AskUserQuestion — 4개 질문 동시]
+
+Q1. 이미지 비율을 선택해주세요:
+  ① 1:1 정사각 (기본 — 플랫폼 대표이미지) ⭐
+  ② 4:3 가로형 (배너, 프로모션)
+  ③ 3:4 세로형 (SNS 피드)
+  ④ 16:9 와이드 (상단 배너, 유튜브 썸네일)
+  ⑤ 9:16 세로 풀 (릴스, 숏츠, 스토리)
+
+Q2. 배경 스타일을 선택해주세요:
+  ① 클린 흰색 — 순백 배경, 상품만 (#FFFFFF)
+  ② 자연 배경 — 상품에 어울리는 자연스러운 배경 (AI 추천)
+  ③ 직접 입력 — 원하는 배경 설명 (예: "나무 테이블 위", "해변")
+
+Q3. 사람 등장 여부:
+  ① 상품만 — 사람 없음
+  ② 손만 — 상품을 잡고 있는 손 (먹는 장면, 들고 있는 장면)
+  ③ 사람 전체 (여성) — 상품과 함께 여성 모델
+  ④ 사람 전체 (남성) — 상품과 함께 남성 모델
+
+Q4. 홍보 문구:
+  ① AI 추천 — 상품에 맞는 문구 자동 생성
+  ② 직접 입력 — 원하는 문구를 입력
+  ③ 문구 없음 — 텍스트 없이 이미지만
+```
+
+변수 저장:
+- `aspect_ratio`: "1:1" / "4:3" / "3:4" / "16:9" / "9:16"
+- `bg_style`: "white" / "natural" / "{사용자 입력}"
+- `person`: "none" / "hand" / "female" / "male"
+- `copy_mode`: "auto" / "custom" / "none"
+
+### 비율별 해상도 매핑
+
+| 비율 | 해상도 | 용도 |
+|------|--------|------|
+| 1:1 | 1000x1000px | 플랫폼 대표이미지 |
+| 4:3 | 1200x900px | 배너, 프로모션 |
+| 3:4 | 900x1200px | SNS 피드 |
+| 16:9 | 1280x720px | 배너, 유튜브 썸네일 |
+| 9:16 | 720x1280px | 릴스, 숏츠, 스토리 |
+
+### 문구 위치 선택 (copy_mode != "none"일 때만)
 
 ```
 [AskUserQuestion]
-썸네일 타입을 선택해주세요:
 
-① 클린 상품컷 — 흰 배경 + 상품만 (플랫폼 기본 요건)
-② 마케팅 썸네일 — 상품 + 카피 텍스트 + 뱃지 (클릭률 UP)
+Q1. 문구 위치:
+  ① 상단 — 이미지 위쪽
+  ② 하단 — 이미지 아래쪽
+  ③ 좌측 — 왼쪽 정렬
+  ④ 우측 — 오른쪽 정렬
+  ⑤ 중앙 — 가운데
+  ⑥ AI 추천 — 레이아웃 자동 배치
 ```
 
-`thumb_type` 변수로 저장 (clean_product / marketing).
+`text_position` 변수 저장: "top" / "bottom" / "left" / "right" / "center" / "auto"
 
-플랫폼별 썸네일 규격:
+### 문구 확인 (copy_mode == "auto"일 때)
 
-| 플랫폼 | 권장 크기 | 비율 | 포맷 |
-|--------|----------|------|------|
-| 쿠팡 | 500x500px 이상 | 1:1 정사각 | JPG/PNG |
-| 스마트스토어 | 1000x1000px | 1:1 정사각 | JPG/PNG |
-| 올웨이즈 | 800x800px | 1:1 정사각 | JPG/PNG |
-| 토스 | 800x800px | 1:1 정사각 | JPG/PNG |
-| 공통 | 1000x1000px | 1:1 정사각 | JPG |
+상품 정보 기반으로 문구를 자동 생성하여 확인:
+
+```
+[AskUserQuestion]
+생성된 홍보 문구를 확인해주세요:
+
+메인: "{자동 생성 — 예: 해남 황토 꿀고구마}"
+서브: "{자동 생성 — 예: GAP 인증 | 산지직송}"
+
+수정할 부분이 있으면 말씀해주세요. OK면 "확인"
+```
+
+include_price == true인 경우에만 가격 문구 포함.
 
 ### Thumbnail Phase 1: 정보 수집 (간단)
 
@@ -620,100 +673,85 @@ WebSearch 1회로 상품 특징 파악:
 검색 쿼리: "{product_name} 쿠팡"
 ```
 
-정리할 내용:
+정리:
 - 상품 핵심 특징 1줄
-- 주요 뱃지 후보 (무농약/GAP/산지직송/무료배송 등)
-- 가격 (include_price == true인 경우만)
+- 뱃지 후보 (무농약/GAP/산지직송/무료배송 등)
 
-### Thumbnail Phase 2: 썸네일 생성
+### Thumbnail Phase 2: 썸네일 생성 (3장 병렬)
 
-#### ① 클린 상품컷 (thumb_type == "clean_product")
+모든 옵션을 조합하여 **3장 변형**을 Agent 3개로 동시 생성.
 
-Gemini로 정사각 상품 이미지 생성:
+#### 프롬프트 조립 규칙
+
+```
+[기본 구조]
+{product_type} product {photography_style} of {product_name}.
+{aspect_ratio_desc} format, {width}x{height}px.
+
+[배경]
+- white → "Pure white background (#FFFFFF). Professional studio lighting."
+- natural → "Natural, contextual background suitable for {product_name}. {상품 카테고리에 맞는 배경 자동 추천}."
+- 직접 입력 → "{사용자 입력 배경 설명}."
+
+[사람]
+- none → (사람 관련 지시 없음)
+- hand → "A human hand naturally holding or presenting the product."
+- female → "A Korean woman in her 30s naturally presenting the product, lifestyle feel."
+- male → "A Korean man in his 30s naturally presenting the product, lifestyle feel."
+
+[문구 — copy_mode != "none"일 때만]
+- text_position에 따라:
+  "Korean text overlay at {position}:"
+  "- Main: \"{main_copy}\" (large, bold)"
+  "- Sub: \"{sub_copy}\" (smaller)"
+
+[문구 없음 — copy_mode == "none"일 때]
+- "NO text, NO labels, NO watermarks, NO decorations."
+
+[공통]
+"High resolution, professional Korean e-commerce style."
+"Appetizing, fresh, premium appearance."
+```
+
+#### 3장 변형 규칙
+
+Agent 3개를 병렬로 실행. 각 변형은 앵글/구도를 다르게:
+
+| 변형 | 앵글/구도 |
+|------|----------|
+| A | 정면 — 상품 중심, 안정적 구도 |
+| B | 약간 위에서 (30~45도) — 입체감, 전체 모습 |
+| C | 클로즈업 또는 측면 — 질감/디테일 강조 |
+
+각 Agent에서 실행:
 
 ```bash
 python3 scripts/gemini-image.py \
   --product "{product_name}" \
-  --block "썸네일" \
-  --block-num 1 \
+  --block "썸네일_{변형}" \
+  --block-num {N} \
   --style "{style}" \
-  --copy "{product_name}" \
+  --copy "{조립된 프롬프트}" \
   --output "output/{product_name}/thumbnails/" \
   --platform {platform}
 ```
-
-**프롬프트 가이드 (클린 상품컷):**
-```
-Product photography of {product_name}.
-Square format (1:1 ratio), {size}x{size}px.
-Pure white background (#FFFFFF).
-Product centered, occupying 70-80% of frame.
-Professional studio lighting, soft shadows.
-High resolution, clean and minimal.
-NO text, NO labels, NO watermarks, NO decorations.
-Korean food product style — appetizing, fresh appearance.
-```
-
-한 번에 **3장 변형**을 생성 (Agent 3개 병렬):
-- 변형 A: 정면 앵글
-- 변형 B: 약간 위에서 (45도)
-- 변형 C: 클로즈업 (질감 강조)
-
-#### ② 마케팅 썸네일 (thumb_type == "marketing")
-
-카피 요소 먼저 결정:
-
-```
-[AskUserQuestion]
-썸네일에 들어갈 텍스트를 확인해주세요:
-
-메인 카피: "{자동 생성 — 예: 해남 황토 꿀고구마}"
-서브 카피: "{자동 생성 — 예: GAP 인증 산지직송}"
-뱃지: "{자동 생성 — 예: 무료배송 | 무농약}"
-
-수정할 부분이 있으면 말씀해주세요.
-```
-
-include_price == true인 경우에만 가격 뱃지 추가.
-
-Gemini로 마케팅 썸네일 생성:
-
-**프롬프트 가이드 (마케팅 썸네일):**
-```
-E-commerce product thumbnail for {product_name}.
-Square format (1:1 ratio), {size}x{size}px.
-{style_description} background.
-Product image prominently displayed.
-Korean text overlay:
-- Main: "{main_copy}" (large, bold)
-- Sub: "{sub_copy}" (smaller)
-- Badge: "{badges}" (corner badge style)
-Professional Korean e-commerce thumbnail style.
-Clean layout, high contrast text for readability.
-```
-
-한 번에 **3장 변형** 생성 (Agent 3개 병렬):
-- 변형 A: 텍스트 좌측 + 상품 우측
-- 변형 B: 텍스트 상단 + 상품 중앙
-- 변형 C: 텍스트 하단 + 상품 배경
 
 ### Thumbnail Phase 3: 확인 + 저장
 
 3장 변형을 Read로 사용자에게 표시:
 
 ```
-[이미지 3장 모두 표시]
+🖼️ 썸네일 3가지 변형:
 
-🖼️ 썸네일 3가지 변형입니다:
-
-A. 정면 앵글 / 텍스트 좌측
-B. 45도 앵글 / 텍스트 상단
-C. 클로즈업 / 텍스트 하단
+A. 정면 구도
+B. 위에서 (45도)
+C. 클로즈업
 
 어떤 것을 사용하시겠어요?
-- 번호로 선택 (예: A)
-- 수정 요청 (예: "A 배경 더 밝게")
+- 선택 (예: A)
+- 수정 요청 (예: "A 배경 더 밝게", "B 손을 추가해줘")
 - 전부 재생성
+- 옵션 변경 후 재생성 (배경/사람/문구 등)
 ```
 
 선택 완료 시:
@@ -728,6 +766,8 @@ C. 클로즈업 / 텍스트 하단
 마음에 드는 이미지를 플랫폼 대표 이미지에 등록하세요.
 - 쿠팡: Wing → 상품 등록 → 대표이미지
 - 스마트스토어: 상품 등록 → 대표이미지
+- 올웨이즈: 셀러센터 → 상품 등록
+- 토스: 입점 관리 → 상품 이미지
 ```
 
 ---
@@ -758,7 +798,7 @@ C. 클로즈업 / 텍스트 하단
 
 ---
 
-*버전: 2.3*
+*버전: 2.4*
 *생성일: 2026-03-30*
-*변경: 썸네일 제작 모드 추가 (클린 상품컷 / 마케팅 썸네일, 3장 변형 병렬 생성)*
+*변경: 썸네일 옵션 시스템 (비율 5종 / 배경 3종 / 사람 4종 / 문구 위치 6종 / 3장 변형 병렬)*
 *의존성: scripts/gemini-image.py, prompts/style-*.txt, prompts/block-prompts.txt, templates/detail-base.html*
