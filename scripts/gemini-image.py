@@ -374,6 +374,97 @@ def combine_images(image_dir: Path, output_path: Path, platform: str = "universa
 # Modes
 # ---------------------------------------------------------------------------
 
+def run_prompt_only_single(args) -> bool:
+    """Single block prompt-only mode — output prompt without calling API."""
+    platform = getattr(args, "platform", "universal")
+    spec = PLATFORM_SPECS.get(platform, PLATFORM_SPECS["universal"])
+    width = spec["width"]
+
+    style_prompt = load_style_prompt(args.style)
+    block_prompts = load_block_prompts()
+    block_hint = block_prompts.get(args.block, "")
+
+    prompt = build_prompt(
+        product=args.product,
+        block_name=args.block,
+        block_num=args.block_num,
+        style_prompt=style_prompt,
+        copy_text=args.copy,
+        block_hint=block_hint,
+        width=width,
+    )
+
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    prompt_file = output_dir / f"{args.block_num:02d}_{args.block}_prompt.txt"
+    prompt_file.write_text(prompt, encoding="utf-8")
+    print(f"[prompt-only] {prompt_file}")
+    print(prompt)
+    return True
+
+
+def run_prompt_only_batch(args) -> bool:
+    """Batch prompt-only mode — output all prompts without calling API."""
+    json_path = Path(args.blocks_json)
+    if not json_path.exists():
+        print(f"ERROR: JSON file not found: {json_path}")
+        return False
+
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    product = data["product"]
+    style = data.get("style", "clean")
+    blocks = data["blocks"]
+
+    platform = getattr(args, "platform", "universal")
+    spec = PLATFORM_SPECS.get(platform, PLATFORM_SPECS["universal"])
+    width = spec["width"]
+
+    style_prompt = load_style_prompt(style)
+    block_prompts = load_block_prompts()
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Product:  {product}")
+    print(f"Style:    {style}")
+    print(f"Platform: {platform} (width: {width}px)")
+    print(f"Blocks:   {len(blocks)}")
+    print(f"Output:   {output_dir}")
+    print("=" * 60)
+
+    all_prompts = []
+    for idx, block in enumerate(blocks, start=1):
+        name = block["name"]
+        copy = block.get("copy", "")
+        context = block.get("context", "")
+        block_hint = block_prompts.get(name, "")
+
+        prompt = build_prompt(
+            product=product,
+            block_name=name,
+            block_num=idx,
+            style_prompt=style_prompt,
+            copy_text=copy,
+            block_hint=block_hint,
+            extra_context=context,
+            width=width,
+        )
+
+        # Save individual prompt file
+        prompt_file = output_dir / f"{idx:02d}_{name}_prompt.txt"
+        prompt_file.write_text(prompt, encoding="utf-8")
+
+        all_prompts.append(f"### [{idx}] {name}\n\n{prompt}")
+        print(f"[{idx}/{len(blocks)}] {prompt_file.name}")
+
+    # Save combined prompts file
+    combined = f"# {product} — 이미지 프롬프트 모음\n\n" + "\n\n---\n\n".join(all_prompts) + "\n"
+    combined_file = output_dir / "all_prompts.md"
+    combined_file.write_text(combined, encoding="utf-8")
+    print("=" * 60)
+    print(f"All prompts saved: {combined_file}")
+    return True
+
+
 def run_single(args) -> bool:
     """Single block mode."""
     from google import genai
@@ -513,10 +604,26 @@ def main():
         help="배치 생성 후 모든 블록 이미지를 세로로 합본 (combined_전체.jpg)",
     )
 
+    # Prompt-only
+    parser.add_argument(
+        "--prompt-only",
+        action="store_true",
+        help="이미지 생성 없이 프롬프트만 출력/저장 (API 호출 안 함)",
+    )
+
     args = parser.parse_args()
 
     # Determine mode
-    if args.blocks_json:
+    if args.prompt_only:
+        if args.blocks_json:
+            ok = run_prompt_only_batch(args)
+        elif args.product and args.block and args.block_num and args.copy:
+            ok = run_prompt_only_single(args)
+        else:
+            parser.print_help()
+            print("\nERROR: --prompt-only requires same args as normal mode (--blocks-json or --product/--block/--block-num/--copy)")
+            sys.exit(1)
+    elif args.blocks_json:
         ok = run_batch(args)
         if ok and args.combine:
             output_dir = Path(args.output)
