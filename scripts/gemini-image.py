@@ -43,6 +43,22 @@ PLATFORM_SPECS = {
     "universal":   {"width": 860,  "format": "jpg", "quality": 85, "max_size_mb": 2},
 }
 
+# Toss shopping feed ad image specs
+TOSS_AD_SPECS = {
+    "min_side": 1280,       # 가로/세로 중 한 면 최소 1280px
+    "max_size_mb": 7,       # 7MB 이하
+    "formats": ["jpg", "png"],
+    "text_overlay_bottom": 180,  # 하단 180px 문구 영역 (가려질 수 있음)
+    "max_caption_chars": 39,     # 게시물 문구 최대 39자
+    "aspect_ratios": {           # 16:9 ~ 9:16 사이
+        "landscape_wide": {"w": 1280, "h": 720,  "ratio": "16:9"},
+        "landscape":      {"w": 1280, "h": 960,  "ratio": "4:3"},
+        "square":         {"w": 1280, "h": 1280, "ratio": "1:1"},
+        "portrait":       {"w": 960,  "h": 1280, "ratio": "3:4"},
+        "portrait_tall":  {"w": 720,  "h": 1280, "ratio": "9:16"},
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # API key loading
@@ -129,6 +145,68 @@ def load_block_prompts() -> dict[str, str]:
         blocks[current_name] = "\n".join(lines).strip()
 
     return blocks
+
+
+def build_toss_ad_prompt(
+    product: str,
+    style_prompt: str,
+    caption: str = "",
+    aspect_ratio: str = "1:1",
+    width: int = 1280,
+    height: int = 1280,
+    extra_context: str = "",
+) -> str:
+    """Build Toss shopping feed ad image prompt."""
+    parts = [
+        "Create a professional Korean food product advertisement image for Toss Shopping feed.",
+        "This is a social-feed-style ad image that appears in users' Toss app feed.",
+        "",
+        f"Product: {product}",
+        f"Image size: {width}x{height}px ({aspect_ratio})",
+        "",
+    ]
+
+    if style_prompt:
+        parts.append(style_prompt)
+        parts.append("")
+
+    parts.extend([
+        "COMPOSITION RULES:",
+        "- The product should be the hero — large, centered, appetizing.",
+        "- Use natural, lifestyle-oriented photography style (not sterile studio shots).",
+        "- Warm, inviting lighting that makes food look delicious.",
+        f"- IMPORTANT: The bottom {TOSS_AD_SPECS['text_overlay_bottom']}px will be overlaid with text by the platform.",
+        "  Keep the bottom area relatively simple/dark — avoid placing key product details there.",
+        "  The main product and visual focal point should be in the upper 2/3 of the image.",
+        "",
+    ])
+
+    if caption:
+        parts.extend([
+            "The following caption will be shown as text overlay by the platform (do NOT render it in the image):",
+            f'  "{caption}"',
+            "",
+        ])
+
+    if extra_context:
+        parts.append(extra_context)
+        parts.append("")
+
+    parts.extend([
+        "STYLE:",
+        "- Clean, premium Korean food advertising aesthetic.",
+        "- No text, no labels, no watermarks in the image itself.",
+        "- The platform handles all text overlay — generate a PURE product image.",
+        "- High resolution, vibrant colors, appetizing presentation.",
+        "- Think: Instagram food ads, Toss Shopping feed, Market Kurly banner style.",
+        "",
+        "CRITICAL RULES:",
+        "- DO NOT include ANY text in the image — no Korean, no English, no numbers, no labels.",
+        "- DO NOT include price tags, discount badges, or promotional text.",
+        "- The image must work as a standalone visual that grabs attention in a social feed.",
+    ])
+
+    return "\n".join(parts)
 
 
 def build_prompt(
@@ -374,6 +452,104 @@ def combine_images(image_dir: Path, output_path: Path, platform: str = "universa
 # Modes
 # ---------------------------------------------------------------------------
 
+def run_toss_ad(args) -> bool:
+    """Toss shopping feed ad image generation mode."""
+    from google import genai
+
+    api_key = load_api_key()
+    client = genai.Client(api_key=api_key)
+
+    style_prompt = load_style_prompt(args.style)
+
+    # Determine aspect ratio dimensions
+    ratio_key = args.toss_ratio or "square"
+    ratio_info = TOSS_AD_SPECS["aspect_ratios"].get(ratio_key)
+    if not ratio_info:
+        print(f"ERROR: Unknown ratio '{ratio_key}'. Available: {list(TOSS_AD_SPECS['aspect_ratios'].keys())}")
+        return False
+
+    w, h = ratio_info["w"], ratio_info["h"]
+    ratio_label = ratio_info["ratio"]
+
+    caption = getattr(args, "toss_caption", "") or ""
+    if caption and len(caption) > TOSS_AD_SPECS["max_caption_chars"]:
+        print(f"WARNING: Caption is {len(caption)} chars (max {TOSS_AD_SPECS['max_caption_chars']}). Truncating.")
+        caption = caption[:TOSS_AD_SPECS["max_caption_chars"]]
+
+    extra = getattr(args, "toss_context", "") or ""
+
+    prompt = build_toss_ad_prompt(
+        product=args.product,
+        style_prompt=style_prompt,
+        caption=caption,
+        aspect_ratio=ratio_label,
+        width=w,
+        height=h,
+        extra_context=extra,
+    )
+
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    variation = getattr(args, "toss_variation", "A") or "A"
+
+    if args.prompt_only:
+        prompt_file = output_dir / f"toss_ad_{variation}_prompt.txt"
+        prompt_file.write_text(prompt, encoding="utf-8")
+        print(f"[prompt-only] {prompt_file}")
+        print(prompt)
+        return True
+
+    print(f"Generating Toss ad: {ratio_label} ({w}x{h}px), variation {variation}")
+    image_data = generate_image(client, prompt)
+    if not image_data:
+        print("  FAILED")
+        return False
+
+    # Save with Toss ad specs
+    from PIL import Image
+    import io
+
+    img = Image.open(io.BytesIO(image_data))
+
+    # Convert to RGB
+    if img.mode in ("RGBA", "P", "LA"):
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode in ("RGBA", "LA"):
+            background.paste(img, mask=img.split()[-1])
+        else:
+            background.paste(img)
+        img = background
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+
+    # Resize to target dimensions
+    img = img.resize((w, h), Image.LANCZOS)
+
+    # Save as JPG
+    fmt = "jpg"
+    filename = f"toss_ad_{variation}.{fmt}"
+    filepath = output_dir / filename
+    max_size_bytes = TOSS_AD_SPECS["max_size_mb"] * 1024 * 1024
+    quality = 90
+
+    while quality >= 60:
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=quality, optimize=True)
+        if buffer.tell() <= max_size_bytes:
+            filepath.write_bytes(buffer.getvalue())
+            break
+        quality -= 5
+        print(f"  Reducing quality to {quality} (size: {buffer.tell() / 1024 / 1024:.1f}MB)")
+    else:
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=60, optimize=True)
+        filepath.write_bytes(buffer.getvalue())
+
+    size_mb = filepath.stat().st_size / 1024 / 1024
+    print(f"  Saved: {filepath} ({w}x{h}px, {size_mb:.1f}MB)")
+    return True
+
+
 def run_prompt_only_single(args) -> bool:
     """Single block prompt-only mode — output prompt without calling API."""
     platform = getattr(args, "platform", "universal")
@@ -611,10 +787,44 @@ def main():
         help="이미지 생성 없이 프롬프트만 출력/저장 (API 호출 안 함)",
     )
 
+    # Toss ad mode
+    parser.add_argument(
+        "--toss-ad",
+        action="store_true",
+        help="토스 쇼핑 피드 게시물 광고 이미지 생성 모드",
+    )
+    parser.add_argument(
+        "--toss-ratio",
+        default="square",
+        choices=list(TOSS_AD_SPECS["aspect_ratios"].keys()),
+        help="토스 광고 비율 (default: square)",
+    )
+    parser.add_argument(
+        "--toss-caption",
+        default="",
+        help="토스 게시물 문구 (최대 39자, 이미지에 포함 안 됨)",
+    )
+    parser.add_argument(
+        "--toss-variation",
+        default="A",
+        help="변형 ID (A/B/C)",
+    )
+    parser.add_argument(
+        "--toss-context",
+        default="",
+        help="추가 컨텍스트 (상품 특징 등)",
+    )
+
     args = parser.parse_args()
 
     # Determine mode
-    if args.prompt_only:
+    if args.toss_ad:
+        if not args.product:
+            parser.print_help()
+            print("\nERROR: --toss-ad requires --product")
+            sys.exit(1)
+        ok = run_toss_ad(args)
+    elif args.prompt_only:
         if args.blocks_json:
             ok = run_prompt_only_batch(args)
         elif args.product and args.block and args.block_num and args.copy:
